@@ -2,6 +2,7 @@ import React, { FC, memo } from 'react';
 import Animated, {
   useAnimatedStyle, useDerivedValue, useSharedValue, withTiming,
 } from 'react-native-reanimated';
+import { Platform } from 'react-native';
 import StoryAnimation from '../Animation';
 import ListStyles from './List.styles';
 import StoryImage from '../Image';
@@ -16,7 +17,7 @@ const StoryList: FC<StoryListProps> = ( {
   id, stories, index, x, activeUser, activeStory, progress, seenStories, paused,
   onLoad, videoProps, progressColor, progressActiveColor, mediaContainerStyle, imageStyles,
   imageProps, progressContainerStyle, imageOverlayView, hideElements, hideOverlayViewOnLongPress,
-  videoDuration, loaderColor, loaderBackgroundColor, ...props
+  videoDuration, loaderColor, loaderBackgroundColor, storyContainerStyles, ...props
 } ) => {
 
   const imageHeight = useSharedValue( HEIGHT );
@@ -26,12 +27,21 @@ const StoryList: FC<StoryListProps> = ( {
     () => stories.findIndex( ( item ) => item.id === activeStory.value ),
   );
 
-  const animatedStyles = useAnimatedStyle( () => ( { height: imageHeight.value } ) );
+  const animatedStyles = useAnimatedStyle( () => ( {
+    height: Platform.OS === 'android' ? HEIGHT : imageHeight.value,
+  } ) );
   const contentStyles = useAnimatedStyle( () => ( {
     opacity: withTiming( hideElements.value ? 0 : 1 ),
   } ) );
 
   const onImageLayout = ( height: number ) => {
+
+    // No Android, fixar altura para evitar tremor durante transições
+    if ( Platform.OS === 'android' ) {
+
+      return;
+
+    }
 
     imageHeight.value = height;
 
@@ -43,7 +53,7 @@ const StoryList: FC<StoryListProps> = ( {
 
   return (
     <StoryAnimation x={x} index={index}>
-      <Animated.View style={[ animatedStyles, ListStyles.container ]}>
+      <Animated.View style={[ animatedStyles, ListStyles.container, storyContainerStyles ]}>
         <StoryImage
           stories={stories}
           activeStory={activeStory}

@@ -36,6 +36,11 @@ const InstagramStories = forwardRef<InstagramStoriesPublicMethods, InstagramStor
   avatarBorderRadius,
   loaderColor,
   loaderBackgroundColor,
+  onSwipeUp,
+  onStoryStart,
+  onStoryEnd,
+  onShow,
+  onHide,
   ...props
 }, ref ) => {
 
@@ -255,6 +260,11 @@ const InstagramStories = forwardRef<InstagramStoriesPublicMethods, InstagramStor
         storyAvatarSize={storyAvatarSize}
         onLoad={onLoad}
         onSeenStoriesChange={onSeenStoriesChange}
+        onSwipeUp={onSwipeUp}
+        onStoryStart={onStoryStart}
+        onStoryEnd={onStoryEnd}
+        onShow={onShow}
+        onHide={onHide}
         backgroundColor={backgroundColor}
         videoDuration={videoAnimationMaxDuration}
         videoProps={videoProps}

@@ -1,9 +1,11 @@
 import React, {
   forwardRef, memo, useEffect, useImperativeHandle, useState,
 } from 'react';
-import { GestureResponderEvent, Modal, Pressable } from 'react-native';
+import {
+  GestureResponderEvent, Modal, Platform, Pressable, View,
+} from 'react-native';
 import Animated, {
-  cancelAnimation, interpolate, runOnJS, useAnimatedGestureHandler, useAnimatedReaction,
+  cancelAnimation, interpolate, runOnJS, useAnimatedReaction,
   useAnimatedStyle,
   useDerivedValue, useSharedValue, withTiming,
 } from 'react-native-reanimated';
@@ -17,6 +19,7 @@ import ModalStyles from './Modal.styles';
 
 const StoryModal = forwardRef<StoryModalPublicMethods, StoryModalProps>( ( {
   stories, seenStories, duration, videoDuration, storyAvatarSize, textStyle, containerStyle,
+  storyContainerStyles, mediaContainerStyle,
   backgroundColor, videoProps, closeIconColor, modalAnimationDuration = STORY_ANIMATION_DURATION,
   storyAnimationDuration = STORY_ANIMATION_DURATION, hideElementsOnLongPress, loopingStories = 'none',
   statusBarTranslucent, loaderColor, loaderBackgroundColor, onLoad, onShow, onHide,
@@ -24,6 +27,8 @@ const StoryModal = forwardRef<StoryModalPublicMethods, StoryModalProps>( ( {
 }, ref ) => {
 
   const [ visible, setVisible ] = useState( false );
+  const [ activeUserIndex, setActiveUserIndex ] = useState( 0 );
+  const isGestureActive = useSharedValue( false );
 
   const x = useSharedValue( 0 );
   const y = useSharedValue( HEIGHT );
@@ -261,91 +266,107 @@ const StoryModal = forwardRef<StoryModalPublicMethods, StoryModalProps>( ( {
 
   };
 
-  const onGestureEvent = useAnimatedGestureHandler( {
-    onStart: ( e, ctx: GestureContext ) => {
+  const onGestureStart = ( e: any, ctx: GestureContext ) => {
 
-      ctx.x = x.value;
-      ctx.userId = userId.value;
-      paused.value = true;
+    'worklet';
 
-    },
-    onActive: ( e, ctx ) => {
+    ctx.x = x.value;
+    ctx.userId = userId.value;
+    paused.value = true;
+    isGestureActive.value = true;
 
-      if ( ctx.x === x.value
-        && ( ctx.vertical || ( Math.abs( e.velocityX ) < Math.abs( e.velocityY ) ) ) ) {
+  };
 
-        ctx.vertical = true;
-        y.value = e.translationY / 2;
+  const onGestureUpdate = ( e: any, ctx: GestureContext ) => {
+
+    'worklet';
+
+    if ( ctx.x === x.value
+      && ( ctx.vertical || ( Math.abs( e.velocityX ) < Math.abs( e.velocityY ) ) ) ) {
+
+      ctx.vertical = true;
+      y.value = e.translationY / 2;
+
+    } else {
+
+      ctx.moving = true;
+      x.value = Math.max(
+        0,
+        Math.min( ctx.x + -e.translationX, WIDTH * ( stories.length - 1 ) ),
+      );
+
+    }
+
+  };
+
+  const onGestureEnd = ( e: any, ctx: GestureContext ) => {
+
+    'worklet';
+
+    if ( ctx.vertical ) {
+
+      // closing from swipe up or down
+      if ( e.translationY < -500 || e.translationY > 70 ) {
+
+        onClose();
 
       } else {
 
-        ctx.moving = true;
-        x.value = Math.max(
-          0,
-          Math.min( ctx.x + -e.translationX, WIDTH * ( stories.length - 1 ) ),
-        );
+        if ( e.translationY < -100 && onSwipeUp ) {
+
+          runOnJS( onSwipeUp )(
+            stories[userIndex.value]?.id,
+            stories[userIndex.value]?.stories[storyIndex.value ?? 0]?.id,
+          );
+
+        }
+
+        y.value = withTiming( 0 );
+        startAnimation( true );
 
       }
 
-    },
-    onFinish: ( e, ctx ) => {
+    } else if ( ctx.moving ) {
 
-      if ( ctx.vertical ) {
+      const diff = x.value - ctx.x;
+      let newX;
 
-        if ( e.translationY > 100 ) {
+      if ( Math.abs( diff ) < WIDTH / 4 ) {
 
-          onClose();
+        newX = ctx.x;
 
-        } else {
+      } else {
 
-          if ( e.translationY < -100 && onSwipeUp ) {
-
-            runOnJS( onSwipeUp )(
-              stories[userIndex.value]?.id,
-              stories[userIndex.value]?.stories[storyIndex.value ?? 0]?.id,
-            );
-
-          }
-
-          y.value = withTiming( 0 );
-          startAnimation( true );
-
-        }
-
-      } else if ( ctx.moving ) {
-
-        const diff = x.value - ctx.x;
-        let newX;
-
-        if ( Math.abs( diff ) < WIDTH / 4 ) {
-
-          newX = ctx.x;
-
-        } else {
-
-          newX = diff > 0
-            ? Math.ceil( x.value / WIDTH ) * WIDTH
-            : Math.floor( x.value / WIDTH ) * WIDTH;
-
-        }
-
-        const newUserId = stories[Math.round( newX / WIDTH )]?.id;
-        if ( newUserId !== undefined ) {
-
-          scrollTo( newUserId, true, newUserId === ctx.userId, ctx.userId );
-
-        }
+        newX = diff > 0
+          ? Math.ceil( x.value / WIDTH ) * WIDTH
+          : Math.floor( x.value / WIDTH ) * WIDTH;
 
       }
 
-      ctx.moving = false;
-      ctx.vertical = false;
-      ctx.userId = undefined;
-      hideElements.value = false;
-      paused.value = false;
+      const newUserId = stories[Math.round( newX / WIDTH )]?.id;
+      if ( newUserId !== undefined ) {
 
-    },
-  } );
+        scrollTo( newUserId, true, newUserId === ctx.userId, ctx.userId );
+
+      }
+
+    }
+
+    ctx.moving = false;
+    ctx.vertical = false;
+    ctx.userId = undefined;
+    hideElements.value = false;
+    paused.value = false;
+    isGestureActive.value = false;
+
+    // Trigger re-render on web after gesture completes
+    if ( Platform.OS === 'web' ) {
+
+      runOnJS( setActiveUserIndex )( userIndex.value );
+
+    }
+
+  };
 
   const onPressIn = () => {
 
@@ -376,7 +397,7 @@ const StoryModal = forwardRef<StoryModalPublicMethods, StoryModalProps>( ( {
 
   };
 
-  const onPress = ( { nativeEvent: { locationX } }: GestureResponderEvent ) => {
+  const onPress = ( { nativeEvent }: GestureResponderEvent ) => {
 
     hideElements.value = false;
 
@@ -388,7 +409,12 @@ const StoryModal = forwardRef<StoryModalPublicMethods, StoryModalProps>( ( {
 
     }
 
-    if ( locationX < WIDTH / 2 ) {
+    // Use pageX for web compatibility - locationX can be unreliable on web
+    // pageX gives absolute position, so we compare against WIDTH / 2
+    // On native, locationX works fine, but pageX also works
+    const tapX = nativeEvent.pageX ?? nativeEvent.locationX ?? 0;
+
+    if ( tapX < WIDTH / 2 ) {
 
       const success = toPreviousStory();
 
@@ -459,60 +485,128 @@ const StoryModal = forwardRef<StoryModalPublicMethods, StoryModalProps>( ( {
     [ animation.value ],
   );
 
+  // Sync userIndex with React state for re-rendering on web
+  useAnimatedReaction(
+    () => userIndex.value,
+    ( res ) => {
+
+      if ( Platform.OS === 'web' && !isGestureActive.value ) {
+
+        runOnJS( setActiveUserIndex )( res );
+
+      }
+
+    },
+    [ userIndex.value ],
+  );
+
   return (
-  <View>
-    <Modal statusBarTranslucent={statusBarTranslucent} visible={visible} transparent animationType="none" testID="storyRNModal" onRequestClose={onClose}>
-      <GestureHandler onGestureEvent={onGestureEvent}>
-        <Animated.View style={ModalStyles.container} testID="storyModal">
-          <Pressable
-            onPressIn={onPressIn}
-            onPress={onPress}
-            onLongPress={onLongPress}
-            onPressOut={onPressOut}
-            delayLongPress={LONG_PRESS_DURATION}
-            style={ModalStyles.container}
-          >
-            <Animated.View style={[ ModalStyles.bgAnimation, backgroundAnimatedStyles ]} />
-            <Animated.View style={[ ModalStyles.absolute, animatedStyles, containerStyle ]}>
-              {stories?.map( ( story, index ) => (
-                <StoryList
-                  {...story}
-                  index={index}
-                  x={x}
-                  activeUser={userId}
-                  activeStory={currentStory}
-                  progress={animation}
-                  seenStories={seenStories}
-                  onClose={onClose}
-                  onLoad={( value ) => {
+    <View>
+      <Modal statusBarTranslucent={statusBarTranslucent} visible={visible} transparent animationType="none" testID="storyRNModal" onRequestClose={onClose}>
+        <GestureHandler onStart={onGestureStart} onUpdate={onGestureUpdate} onEnd={onGestureEnd}>
+          <Animated.View style={ModalStyles.container} testID="storyModal">
+            <Pressable
+              onPressIn={onPressIn}
+              onPress={onPress}
+              onLongPress={onLongPress}
+              onPressOut={onPressOut}
+              delayLongPress={LONG_PRESS_DURATION}
+              style={ModalStyles.container}
+            >
+              <Animated.View style={[ ModalStyles.bgAnimation, backgroundAnimatedStyles ]} />
+              <Animated.View style={[ ModalStyles.absolute, animatedStyles, containerStyle ]}>
+                {Platform.OS === 'web'
+                  ? (
+                    // On web: Only render the active story to prevent loading multiple videos
+                    stories?.map( ( story, index ) => {
 
-                    onLoad?.();
-                    startAnimation(
-                      undefined,
-                      value !== undefined ? value : duration,
-                    );
+                      const isActiveStory = activeUserIndex === index;
+                      if ( !isActiveStory ) {
 
-                  }}
-                  avatarSize={storyAvatarSize}
-                  textStyle={textStyle}
-                  paused={paused}
-                  videoProps={videoProps}
-                  closeColor={closeIconColor}
-                  hideElements={hideElements}
-                  videoDuration={videoDuration}
-                  loaderColor={loaderColor}
-                  loaderBackgroundColor={loaderBackgroundColor}
-                  key={story.id}
-                  {...props}
-                />
-              ) )}
-            </Animated.View>
-          </Pressable>
-          {footerComponent && footerComponent}
-        </Animated.View>
-      </GestureHandler>
-    </Modal>
-  </View>
+                        return null;
+
+                      }
+
+                      return (
+                        <StoryList
+                          {...story}
+                          index={index}
+                          x={x}
+                          activeUser={userId}
+                          activeStory={currentStory}
+                          progress={animation}
+                          seenStories={seenStories}
+                          onClose={onClose}
+                          onLoad={( value ) => {
+
+                            onLoad?.();
+                            startAnimation(
+                              undefined,
+                              value !== undefined ? value : duration,
+                            );
+
+                          }}
+                          avatarSize={storyAvatarSize}
+                          textStyle={textStyle}
+                          storyContainerStyles={storyContainerStyles}
+                          mediaContainerStyle={mediaContainerStyle}
+                          paused={paused}
+                          videoProps={videoProps}
+                          closeColor={closeIconColor}
+                          hideElements={hideElements}
+                          videoDuration={videoDuration}
+                          loaderColor={loaderColor}
+                          loaderBackgroundColor={loaderBackgroundColor}
+                          key={story.id}
+                          {...props}
+                        />
+                      );
+
+                    } )
+                  ) : (
+                    // On native: Render all stories for smooth horizontal scrolling
+                    stories?.map( ( story, index ) => (
+                      <StoryList
+                        {...story}
+                        index={index}
+                        x={x}
+                        activeUser={userId}
+                        activeStory={currentStory}
+                        progress={animation}
+                        seenStories={seenStories}
+                        onClose={onClose}
+                        onLoad={( value ) => {
+
+                          onLoad?.();
+                          startAnimation(
+                            undefined,
+                            value !== undefined ? value : duration,
+                          );
+
+                        }}
+                        avatarSize={storyAvatarSize}
+                        textStyle={textStyle}
+                        storyContainerStyles={storyContainerStyles}
+                        mediaContainerStyle={mediaContainerStyle}
+                        paused={paused}
+                        videoProps={videoProps}
+                        closeColor={closeIconColor}
+                        hideElements={hideElements}
+                        videoDuration={videoDuration}
+                        loaderColor={loaderColor}
+                        loaderBackgroundColor={loaderBackgroundColor}
+                        key={story.id}
+                        {...props}
+                      />
+                    ) )
+                  )}
+              </Animated.View>
+            </Pressable>
+            {footerComponent && footerComponent}
+          </Animated.View>
+        </GestureHandler>
+      </Modal>
+    </View>
   );
 
 } );

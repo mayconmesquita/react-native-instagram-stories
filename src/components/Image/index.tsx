@@ -1,4 +1,4 @@
-import { Image, View } from 'react-native';
+import { Image, View, Platform } from 'react-native';
 import React, { FC, memo, useState } from 'react';
 import Animated, {
   runOnJS, useAnimatedReaction, useAnimatedStyle, useDerivedValue, useSharedValue,
@@ -109,14 +109,28 @@ const StoryImage: FC<StoryImageProps> = ( {
       <View style={[ ImageStyles.image, mediaContainerStyle ]}>
         {data.data?.source && (
           data.isVideo ? (
-            <StoryVideo
-              onLoad={onContentLoad}
-              onLayout={onImageLayout}
-              source={data.data.source}
-              paused={isPaused}
-              isActive={isActive}
-              {...videoProps}
-            />
+            <>
+              {/* Only render video when this story is active on WEB */}
+              {/* This prevents preloading videos in background on web */}
+              {/* On native (iOS/Android), always render for better performance */}
+              {Platform.OS === 'web' && !isActive.value ? (
+                <View
+                  style={{ width: WIDTH, aspectRatio: 0.5626 }}
+                  onLayout={( e ) => onImageLayout(
+                    Math.min( HEIGHT, e.nativeEvent.layout.height ),
+                  )}
+                />
+              ) : (
+                <StoryVideo
+                  onLoad={onContentLoad}
+                  onLayout={onImageLayout}
+                  source={data.data.source}
+                  paused={isPaused}
+                  isActive={isActive}
+                  {...videoProps}
+                />
+              )}
+            </>
           ) : (
             <Image
               source={data.data.source}
