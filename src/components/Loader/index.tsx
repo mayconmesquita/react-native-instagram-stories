@@ -1,6 +1,7 @@
 import React, {
-  FC, memo, useMemo, useState,
+  FC, memo, useEffect, useMemo, useState,
 } from 'react';
+import { ActivityIndicator, Platform } from 'react-native';
 import Animated, {
   cancelAnimation, interpolate, runOnJS, useAnimatedProps, useAnimatedReaction, useAnimatedStyle,
   useSharedValue, withRepeat, withTiming,
@@ -13,8 +14,14 @@ import {
 } from '../../core/constants';
 import { StoryLoaderProps } from '../../core/dto/componentsDTO';
 
-const AnimatedCircle = Animated.createAnimatedComponent( Circle );
-const AnimatedSvg = Animated.createAnimatedComponent( Svg );
+// Only create animated components for native platforms
+// Web doesn't support setNativeProps on SVG elements
+const AnimatedCircle = Platform.OS !== 'web'
+  ? Animated.createAnimatedComponent( Circle )
+  : Circle;
+const AnimatedSvg = Platform.OS !== 'web'
+  ? Animated.createAnimatedComponent( Svg )
+  : Svg;
 
 const Loader: FC<StoryLoaderProps> = ( {
   loading, color, size = AVATAR_SIZE + 10,
@@ -24,20 +31,51 @@ const Loader: FC<StoryLoaderProps> = ( {
   const CIRCUMFERENCE = useMemo( () => RADIUS * 2 * Math.PI, [ RADIUS ] );
 
   const [ colors, setColors ] = useState<string[]>( color.value );
+  const [ isLoading, setIsLoading ] = useState( loading.value );
 
   const rotation = useSharedValue( 0 );
   const progress = useSharedValue( 0 );
 
-  const animatedProps = useAnimatedProps( () => ( {
-    strokeDashoffset: interpolate( progress.value, [ 0, 1 ], [ 0, CIRCUMFERENCE * 2 / 3 ] ),
-  } ) );
-  const animatedStyles = useAnimatedStyle( () => ( {
-    transform: [ { rotate: `${rotation.value}deg` } ],
-  } ) );
+  // Native animated props - only used on native platforms
+  const animatedProps = useAnimatedProps( (): { strokeDashoffset?: number } => {
+
+    if ( Platform.OS === 'web' ) {
+
+      return {};
+
+    }
+
+    return {
+      strokeDashoffset: interpolate( progress.value, [ 0, 1 ], [ 0, CIRCUMFERENCE * 2 / 3 ] ),
+    };
+
+  } );
+
+  const animatedStyles = useAnimatedStyle( () => {
+
+    if ( Platform.OS === 'web' ) {
+
+      return {};
+
+    }
+
+    return {
+      transform: [ { rotate: `${rotation.value}deg` } ],
+    };
+
+  } );
 
   const startAnimation = () => {
 
     'worklet';
+
+    if ( Platform.OS === 'web' ) {
+
+      runOnJS( setIsLoading )( true );
+
+      return;
+
+    }
 
     progress.value = withRepeat( withTiming( 1, { duration: 3000 } ), -1, true );
     rotation.value = withRepeat( withTiming( 720, { duration: 3000 } ), -1, false, () => {
@@ -51,6 +89,14 @@ const Loader: FC<StoryLoaderProps> = ( {
   const stopAnimation = () => {
 
     'worklet';
+
+    if ( Platform.OS === 'web' ) {
+
+      runOnJS( setIsLoading )( false );
+
+      return;
+
+    }
 
     cancelAnimation( progress );
     progress.value = withTiming( 0 );
@@ -84,6 +130,52 @@ const Loader: FC<StoryLoaderProps> = ( {
     ( res ) => onColorChange( res ),
     [ color.value ],
   );
+
+  // Web fallback: Poll the loading value since useAnimatedReaction
+  // may not work reliably on web
+  useEffect( () => {
+
+    if ( Platform.OS !== 'web' ) {
+
+      return () => {};
+
+    }
+
+    // Check immediately
+    setIsLoading( loading.value );
+
+    // Poll for changes since web may not trigger useAnimatedReaction reliably
+    const interval = setInterval( () => {
+
+      if ( isLoading !== loading.value ) {
+
+        setIsLoading( loading.value );
+
+      }
+
+    }, 100 );
+
+    return () => clearInterval( interval );
+
+  }, [ loading, isLoading ] );
+
+  // Web-specific loader using ActivityIndicator
+  if ( Platform.OS === 'web' ) {
+
+    if ( !isLoading ) {
+
+      return null;
+
+    }
+
+    return (
+      <ActivityIndicator
+        size={size > 50 ? 'large' : 'small'}
+        color={colors?.[0] || '#fff'}
+      />
+    );
+
+  }
 
   return (
     <AnimatedSvg width={size} height={size} style={animatedStyles}>

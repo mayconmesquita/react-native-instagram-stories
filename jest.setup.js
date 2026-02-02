@@ -1,4 +1,3 @@
-
 jest.mock('react-native-reanimated', () => {
 
   const View = require('react-native').View;
@@ -27,11 +26,14 @@ jest.mock('react-native-reanimated', () => {
     useAnimatedRef: () => ({ current: null }),
     useAnimatedReaction: jest.fn(),
     useAnimatedProps: (cb) => cb(),
-    withTiming: (toValue, _, cb) => {
+    withTiming: (toValue, configOrCb, maybeCb) => {
+      // Handle both withTiming(value, cb) and withTiming(value, config, cb)
+      const cb = typeof configOrCb === 'function' ? configOrCb : maybeCb;
       cb && cb(true);
       return toValue;
     },
-    withSpring: (toValue, _, cb) => {
+    withSpring: (toValue, configOrCb, maybeCb) => {
+      const cb = typeof configOrCb === 'function' ? configOrCb : maybeCb;
       cb && cb(true);
       return toValue;
     },
@@ -90,21 +92,52 @@ jest.mock('react-native-reanimated', () => {
 jest.mock('react-native-gesture-handler', () => {
 
   const View = require('react-native').View;
+  const React = require('react');
 
   return {
     PanGestureHandler: ({onGestureEvent, children}) => (
       <View
-        onResponderStart={onGestureEvent.onStart} 
-        onResponderEnd={onGestureEvent.onFinish} 
-        onResponderMove={onGestureEvent.onActive}
+        onResponderStart={onGestureEvent?.onStart} 
+        onResponderEnd={onGestureEvent?.onFinish} 
+        onResponderMove={onGestureEvent?.onActive}
         testID="gestureContainer"
       >
         {children}
       </View>
     ),
+    GestureDetector: ({ children }) => <View testID="gestureDetector">{children}</View>,
+    GestureHandlerRootView: ({ children, style }) => <View style={style} testID="gestureHandlerRootView">{children}</View>,
+    Gesture: {
+      Pan: () => ({
+        onStart: jest.fn().mockReturnThis(),
+        onUpdate: jest.fn().mockReturnThis(),
+        onEnd: jest.fn().mockReturnThis(),
+        onFinalize: jest.fn().mockReturnThis(),
+        minDistance: jest.fn().mockReturnThis(),
+        activeOffsetX: jest.fn().mockReturnThis(),
+        activeOffsetY: jest.fn().mockReturnThis(),
+      }),
+    },
     gestureHandlerRootHOC: (Component) => Component,
   };
 
+});
+
+// Mock the GestureHandler component directly to handle gestures in tests
+jest.mock('./src/components/Modal/gesture', () => {
+  const View = require('react-native').View;
+  const React = require('react');
+
+  return ({ children, onStart, onUpdate, onEnd }) => (
+    <View 
+      testID="gestureContainer"
+      onResponderStart={(e, ctx) => onStart?.(e, ctx || {})}
+      onResponderMove={(e, ctx) => onUpdate?.(e, ctx || {})}
+      onResponderEnd={(e, ctx) => onEnd?.(e, ctx || {})}
+    >
+      {children}
+    </View>
+  );
 });
 
 jest.mock('./src/core/helpers/storage', () => ({
@@ -122,7 +155,7 @@ jest.mock('./src/components/Image/video', () => {
   
     const { onLoad, onLayout } = props;
 
-    onLoad?.(10000);
+    onLoad?.({ duration: 10, currentTime: 0, width: 1080, height: 1920, orientation: 'portrait' });
     onLayout?.({ nativeEvent: { layout: { width: 100, height: 100 } } });
 
     return <View testID="storyVideo" />;

@@ -57,6 +57,7 @@ export interface StoryModalProps {
   modalAnimationDuration?: number;
   storyAnimationDuration?: number;
   mediaContainerStyle?: ViewStyle;
+  storyContainerStyles?: ViewStyle;
   imageStyles?: ImageStyle;
   imageProps?: ImageProps;
   footerComponent?: ReactNode;
@@ -180,6 +181,7 @@ export interface StoryListProps extends InstagramStoryProps, StoryHeaderProps {
   loaderColor?: string;
   loaderBackgroundColor?: string;
   onLoad: ( duration?: number ) => void;
+  storyContainerStyles?: ViewStyle;
 }
 
 export interface StoryVideoProps {
