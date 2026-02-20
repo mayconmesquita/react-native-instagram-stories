@@ -28,7 +28,7 @@ const StoryList: FC<StoryListProps> = ( {
   );
 
   const animatedStyles = useAnimatedStyle( () => ( {
-    height: Platform.OS === 'android' ? HEIGHT : imageHeight.value,
+    height: Platform.OS === 'android' || Platform.OS === 'web' ? HEIGHT : imageHeight.value,
   } ) );
   const contentStyles = useAnimatedStyle( () => ( {
     opacity: withTiming( hideElements.value ? 0 : 1 ),
@@ -36,8 +36,8 @@ const StoryList: FC<StoryListProps> = ( {
 
   const onImageLayout = ( height: number ) => {
 
-    // No Android, fixar altura para evitar tremor durante transições
-    if ( Platform.OS === 'android' ) {
+    // On Android and web, use fixed HEIGHT to avoid layout issues
+    if ( Platform.OS === 'android' || Platform.OS === 'web' ) {
 
       return;
 
@@ -94,7 +94,25 @@ const StoryList: FC<StoryListProps> = ( {
           </Animated.View>
         </Animated.View>
       </Animated.View>
-      <StoryFooter stories={stories} active={isActive} activeStory={activeStory} />
+      {/* On web: CSS transforms on StoryAnimation do not create a containing block for */}
+      {/* position:absolute children. Wrap Footer in a sibling view with explicit height:HEIGHT */}
+      {/* so that bottom:0 resolves to the bottom of the screen. */}
+      {Platform.OS === 'web' ? (
+        <Animated.View
+          pointerEvents="box-none"
+          style={[ animatedStyles, {
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: ( globalThis as any ).innerHeight || HEIGHT,
+          } ]}
+        >
+          <StoryFooter stories={stories} active={isActive} activeStory={activeStory} />
+        </Animated.View>
+      ) : (
+        <StoryFooter stories={stories} active={isActive} activeStory={activeStory} />
+      )}
     </StoryAnimation>
   );
 
