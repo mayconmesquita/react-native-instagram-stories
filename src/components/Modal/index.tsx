@@ -48,6 +48,35 @@ const StoryModal = forwardRef<StoryModalPublicMethods, StoryModalProps>( ( {
   const userId = useDerivedValue( () => stories[userIndex.value]?.id );
   const previousUserId = useDerivedValue( () => stories[userIndex.value - 1]?.id );
   const nextUserId = useDerivedValue( () => stories[userIndex.value + 1]?.id );
+
+  // Separate active user id that only switches when the story is >= 95% on screen
+  // during a live pan gesture. After the finger lifts, follows Math.round normally.
+  const activeUserId = useSharedValue<string | undefined>( stories[0]?.id );
+
+  useAnimatedReaction(
+    () => x.value,
+    ( xVal ) => {
+
+      const idx = Math.round( xVal / WIDTH );
+      const fraction = Math.abs( xVal / WIDTH - idx );
+
+      // During an active pan gesture only flip when within 5% of the snapped position
+      // (i.e. story is 95%+ on screen). Outside of a gesture (snap animations),
+      // always follow Math.round so videos start as soon as the snap settles.
+      if ( !isGestureActive.value || fraction < 0.05 ) {
+
+        const newId = stories[idx]?.id;
+        if ( newId !== undefined ) {
+
+          activeUserId.value = newId;
+
+        }
+
+      }
+
+    },
+    [ x.value ],
+  );
   const previousStory = useDerivedValue( () => ( storyIndex.value !== undefined
     ? stories[userIndex.value]?.stories[storyIndex.value - 1]?.id
     : undefined ) );
@@ -532,7 +561,7 @@ const StoryModal = forwardRef<StoryModalPublicMethods, StoryModalProps>( ( {
                           {...story}
                           index={index}
                           x={x}
-                          activeUser={userId}
+                          activeUser={activeUserId}
                           activeStory={currentStory}
                           progress={animation}
                           seenStories={seenStories}
@@ -570,7 +599,7 @@ const StoryModal = forwardRef<StoryModalPublicMethods, StoryModalProps>( ( {
                         {...story}
                         index={index}
                         x={x}
-                        activeUser={userId}
+                        activeUser={activeUserId}
                         activeStory={currentStory}
                         progress={animation}
                         seenStories={seenStories}

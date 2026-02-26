@@ -37,6 +37,7 @@ const StoryVideo: FC<StoryVideoProps> = ( {
     const hasStartedRef = useRef<boolean>( false );
     const isMountedRef = useRef<boolean>( false );
     const isVideoReadyRef = useRef<boolean>( false );
+    const startTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>( null );
 
     // Initialize as false (not paused) - video should always start playing
     // The useAnimatedReaction will sync with the actual paused state
@@ -101,6 +102,14 @@ const StoryVideo: FC<StoryVideoProps> = ( {
 
     const stop = () => {
 
+      // Cancel any pending delayed start
+      if ( startTimeoutRef.current !== null ) {
+
+        clearTimeout( startTimeoutRef.current );
+        startTimeoutRef.current = null;
+
+      }
+
       if ( isMountedRef.current ) {
 
         setPausedValue( true );
@@ -120,46 +129,62 @@ const StoryVideo: FC<StoryVideoProps> = ( {
 
     };
 
-    const start = () => {
+    /**
+     * Start video playback from the beginning.
+     * @param seekToZero - seek to position 0 before unpausing. Pass false only
+     *   when the video has just finished loading (it is already at position 0).
+     */
+    // eslint-disable-next-line no-inner-declarations
+    function start( seekToZero = true ) {
 
       // Only seek/resume if component is mounted and video is ready
       if ( ref.current && isMountedRef.current && isVideoReadyRef.current ) {
 
         try {
 
-          // Ensure state is unpaused
-          setPausedValue( false );
-
           if ( Platform.OS !== 'web' ) {
 
-            ref.current.seek( 0 );
-            // resume() is available in v6, play() might not exist
-            // In v6, setting paused=false via state is the recommended way
+            if ( seekToZero ) {
+
+              // Seek while still paused so the native video layer seeks
+              // without the player ever showing a non-zero position.
+              ref.current.seek( 0 );
+
+            }
+
+            // Unpause AFTER scheduling the seek – React batches the state update so
+            // the seek bridge message is sent before the paused=false prop change.
+            setPausedValue( false );
+
+            // resume() is available in v6
             if ( typeof ref.current.resume === 'function' ) {
 
               ref.current.resume();
 
             }
 
+            return;
+
           }
 
-          // Force play on web
-          if ( Platform.OS === 'web' ) {
+          // Web: delay to ensure state update has processed
+          setPausedValue( false );
+          setTimeout( () => {
 
-            // delay to ensure state update has processed and we don't conflict with props
-            setTimeout( () => {
+            const video = getVideoElement();
+            if ( video ) {
 
-              const video = getVideoElement();
-              if ( video ) {
+              if ( seekToZero ) {
 
                 video.currentTime = 0;
-                video.play().catch( () => {} );
 
               }
 
-            }, 50 );
+              video.play().catch( () => {} );
 
-          }
+            }
+
+          }, 50 );
 
         } catch ( e ) {
 
@@ -168,6 +193,36 @@ const StoryVideo: FC<StoryVideoProps> = ( {
         }
 
       }
+
+    }
+
+    /**
+     * Delayed start – waits for the story slide-in animation to complete before
+     * playing the video. `isActive` becomes true at the mid-point of the
+     * horizontal scroll animation (when Math.round(x / WIDTH) flips), so we
+     * add a short delay to avoid starting playback while the slide is still
+     * in progress.
+     */
+    const startWithDelay = () => {
+
+      // Clear any existing pending start
+      if ( startTimeoutRef.current !== null ) {
+
+        clearTimeout( startTimeoutRef.current );
+
+      }
+
+      startTimeoutRef.current = setTimeout( () => {
+
+        startTimeoutRef.current = null;
+        if ( isMountedRef.current ) {
+
+          // Always seek to 0 from the delayed path (loading fresh video)
+          start( true );
+
+        }
+
+      }, 300 );
 
     };
 
@@ -180,6 +235,13 @@ const StoryVideo: FC<StoryVideoProps> = ( {
 
         isMountedRef.current = false;
         isVideoReadyRef.current = false;
+        // Cancel any pending delayed start
+        if ( startTimeoutRef.current !== null ) {
+
+          clearTimeout( startTimeoutRef.current );
+          startTimeoutRef.current = null;
+
+        }
         // Force cleanup/stop on unmount
         stop();
 
@@ -216,11 +278,23 @@ const StoryVideo: FC<StoryVideoProps> = ( {
         if ( !isVideoReadyRef.current && duration > 0 ) {
 
           isVideoReadyRef.current = true;
+
+          // Cancel any pending startWithDelay – we handle playback here instead.
+          // This prevents the 300ms timeout from calling start() (with seek) after
+          // we've already begun playing, causing a visible play→reset→play glitch.
+          if ( startTimeoutRef.current !== null ) {
+
+            clearTimeout( startTimeoutRef.current );
+            startTimeoutRef.current = null;
+
+          }
+
           onLoad( duration * 1000 );
 
           if ( isActive.value && !pausedValueRef.current ) {
 
-            start();
+            // Video just loaded – already at position 0. Start without seeking.
+            start( false );
 
           }
 
@@ -331,7 +405,21 @@ const StoryVideo: FC<StoryVideoProps> = ( {
         // This prevents the initial paused.value from overriding our "start playing" intent
         if ( prev !== undefined && res !== prev ) {
 
-          runOnJS( setPausedValue )( res );
+          if ( res === true ) {
+
+            // Always honour explicit pause commands immediately, even on inactive videos.
+            runOnJS( setPausedValue )( true );
+
+          } else if ( isActive.value && startTimeoutRef.current === null ) {
+
+            // Only propagate unpause to ACTIVE videos with no pending startWithDelay.
+            // Without the isActive guard, when a gesture ends (paused.value → false),
+            // ALL StoryVideo instances receive this reaction — including inactive ones.
+            // An inactive video getting setPausedValue(false) here would resume
+            // playback from mid-position before start(true) ever runs its seek(0).
+            runOnJS( setPausedValue )( false );
+
+          }
 
         }
 
@@ -343,16 +431,31 @@ const StoryVideo: FC<StoryVideoProps> = ( {
       () => isActive.value,
       ( res ) => {
 
-        // Only start on initial activation, not on every isActive change
-        // This prevents seek(0) from being called repeatedly which causes HLS rebuffering
         if ( res && !hasStartedRef.current ) {
 
           hasStartedRef.current = true;
-          runOnJS( start )();
+
+          if ( isVideoReadyRef.current ) {
+
+            // Video already loaded (prerendered on native) – start immediately with
+            // seek(0) to always play from the beginning. This is safe because:
+            // - There is only one start() call in this path (no startWithDelay racing
+            //   with handleLoad), so there is no play→reset→play double-seek.
+            // - We cannot rely on the old video's stop() having reset the position
+            //   before this runs, due to runOnJS ordering being non-deterministic.
+            runOnJS( start )( true );
+
+          } else {
+
+            // Video not ready yet – register intent via startWithDelay.
+            // handleLoad will cancel the timeout and call start(false) once ready.
+            runOnJS( startWithDelay )();
+
+          }
 
         } else if ( !res ) {
 
-          // Pause when inactive
+          // Pause when inactive. The next activation will seek to 0 via start(true).
           runOnJS( stop )();
           // Reset start flag so if we come back to this story, it starts from beginning
           hasStartedRef.current = false;
@@ -381,12 +484,24 @@ const StoryVideo: FC<StoryVideoProps> = ( {
       if ( typeof duration === 'number' && !Number.isNaN( duration ) && duration > 0 ) {
 
         isVideoReadyRef.current = true;
+
+        // Cancel any pending startWithDelay – we handle playback here instead.
+        // This prevents the 300ms timeout from calling start() (with seek) after
+        // we've already begun playing, causing a visible play→reset→play glitch.
+        if ( startTimeoutRef.current !== null ) {
+
+          clearTimeout( startTimeoutRef.current );
+          startTimeoutRef.current = null;
+
+        }
+
         onLoad( duration * 1000 );
 
         // If isActive, try to start the video now that it's ready
         if ( isActive.value && !pausedValue ) {
 
-          start();
+          // Video just loaded – already at position 0. Start without seeking.
+          start( false );
 
         }
 
@@ -416,12 +531,22 @@ const StoryVideo: FC<StoryVideoProps> = ( {
         if ( videoElement && typeof videoElement.duration === 'number' && !Number.isNaN( videoElement.duration ) && videoElement.duration > 0 ) {
 
           isVideoReadyRef.current = true;
+
+          // Cancel any pending startWithDelay (same reason as handleLoad)
+          if ( startTimeoutRef.current !== null ) {
+
+            clearTimeout( startTimeoutRef.current );
+            startTimeoutRef.current = null;
+
+          }
+
           onLoad( videoElement.duration * 1000 );
 
           // If isActive, try to start the video now that it's ready
           if ( isActive.value && !pausedValue ) {
 
-            start();
+            // Video just loaded – already at position 0. Start without seeking.
+            start( false );
 
           }
 
@@ -452,6 +577,15 @@ const StoryVideo: FC<StoryVideoProps> = ( {
         if ( duration && typeof duration === 'number' && !Number.isNaN( duration ) && duration > 0 ) {
 
           isVideoReadyRef.current = true;
+
+          // Cancel any pending startWithDelay (same reason as handleLoad)
+          if ( startTimeoutRef.current !== null ) {
+
+            clearTimeout( startTimeoutRef.current );
+            startTimeoutRef.current = null;
+
+          }
+
           onLoad( duration * 1000 );
 
         }

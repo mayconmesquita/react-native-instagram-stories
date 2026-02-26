@@ -51,7 +51,7 @@ const GestureHandler = ( {
       onEnd?.( e, ctx.value );
 
     } )
-    .minDistance( 0 )
+    .minDistance( 10 )
     .activeOffsetX( [ -10, 10 ] )
     .activeOffsetY( [ -10, 10 ] );
 
