@@ -1,6 +1,13 @@
-import React, { FC, memo } from 'react';
+import React, {
+  FC, memo, useState, useEffect,
+} from 'react';
 import Animated, {
-  useAnimatedStyle, useDerivedValue, useSharedValue, withTiming,
+  useAnimatedStyle,
+  useDerivedValue,
+  useSharedValue,
+  withTiming,
+  useAnimatedReaction,
+  runOnJS,
 } from 'react-native-reanimated';
 import { Platform } from 'react-native';
 import StoryAnimation from '../Animation';
@@ -14,21 +21,45 @@ import StoryContent from '../Content';
 import StoryFooter from '../Footer';
 
 const StoryList: FC<StoryListProps> = ( {
-  id, stories, index, x, activeUser, activeStory, progress, seenStories, paused,
-  onLoad, videoProps, progressColor, progressActiveColor, mediaContainerStyle, imageStyles,
-  imageProps, progressContainerStyle, imageOverlayView, hideElements, hideOverlayViewOnLongPress,
-  videoDuration, loaderColor, loaderBackgroundColor, storyContainerStyles, ...props
+  id,
+  stories,
+  index,
+  x,
+  activeUser,
+  activeStory,
+  progress,
+  seenStories,
+  paused,
+  onLoad,
+  videoProps,
+  progressColor,
+  progressActiveColor,
+  mediaContainerStyle,
+  imageStyles,
+  imageProps,
+  progressContainerStyle,
+  imageOverlayView,
+  hideElements,
+  hideOverlayViewOnLongPress,
+  videoDuration,
+  loaderColor,
+  loaderBackgroundColor,
+  storyContainerStyles,
+  ...props
 } ) => {
 
   const imageHeight = useSharedValue( HEIGHT );
   const isActive = useDerivedValue( () => activeUser.value === id );
 
-  const activeStoryIndex = useDerivedValue(
-    () => stories.findIndex( ( item ) => item.id === activeStory.value ),
-  );
+  const activeStoryIndex = useDerivedValue( () => stories.findIndex(
+    ( item ) => item.id === activeStory.value,
+  ) );
 
   const animatedStyles = useAnimatedStyle( () => ( {
-    height: Platform.OS === 'android' || Platform.OS === 'web' ? HEIGHT : imageHeight.value,
+    height:
+      Platform.OS === 'android' || Platform.OS === 'web'
+        ? HEIGHT
+        : imageHeight.value,
   } ) );
   const contentStyles = useAnimatedStyle( () => ( {
     opacity: withTiming( hideElements.value ? 0 : 1 ),
@@ -47,18 +78,36 @@ const StoryList: FC<StoryListProps> = ( {
 
   };
 
-  const lastSeenIndex = stories.findIndex(
-    ( item ) => item.id === seenStories.value[id],
+  const [ lastSeenIndex, setLastSeenIndex ] = useState( -1 );
+
+  useEffect( () => {
+
+    setLastSeenIndex(
+      stories.findIndex( ( item ) => item.id === seenStories.value[id] ),
+    );
+
+  }, [] );
+
+  useAnimatedReaction(
+    () => seenStories.value[id],
+    ( res, prev ) => res !== prev
+      && runOnJS( setLastSeenIndex )( stories.findIndex( ( item ) => item.id === res ) ),
+    [ seenStories ],
   );
 
   return (
     <StoryAnimation x={x} index={index}>
-      <Animated.View style={[ animatedStyles, ListStyles.container, storyContainerStyles ]}>
+      <Animated.View
+        style={[ animatedStyles, ListStyles.container, storyContainerStyles ]}
+      >
         <StoryImage
           stories={stories}
           activeStory={activeStory}
           defaultStory={stories[lastSeenIndex + 1] ?? stories[0]}
-          isDefaultVideo={( stories[lastSeenIndex + 1]?.mediaType ?? stories[0]?.mediaType ) === 'video'}
+          isDefaultVideo={
+            ( stories[lastSeenIndex + 1]?.mediaType ?? stories[0]?.mediaType )
+            === 'video'
+          }
           onImageLayout={onImageLayout}
           onLoad={onLoad}
           paused={paused}
@@ -79,7 +128,10 @@ const StoryList: FC<StoryListProps> = ( {
           pointerEvents="auto"
         >
           {imageOverlayView}
-          <Animated.View style={[ contentStyles, ListStyles.content ]} pointerEvents="box-none">
+          <Animated.View
+            style={[ contentStyles, ListStyles.content ]}
+            pointerEvents="box-none"
+          >
             <Progress
               active={isActive}
               activeStory={activeStoryIndex}
@@ -90,7 +142,11 @@ const StoryList: FC<StoryListProps> = ( {
               progressContainerStyle={progressContainerStyle}
             />
             <StoryHeader {...props} />
-            <StoryContent stories={stories} active={isActive} activeStory={activeStory} />
+            <StoryContent
+              stories={stories}
+              active={isActive}
+              activeStory={activeStory}
+            />
           </Animated.View>
         </Animated.View>
       </Animated.View>
@@ -100,18 +156,29 @@ const StoryList: FC<StoryListProps> = ( {
       {Platform.OS === 'web' ? (
         <Animated.View
           pointerEvents="box-none"
-          style={[ animatedStyles, {
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            height: ( globalThis as any ).innerHeight || HEIGHT,
-          } ]}
+          style={[
+            animatedStyles,
+            {
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: ( globalThis as any ).innerHeight || HEIGHT,
+            },
+          ]}
         >
-          <StoryFooter stories={stories} active={isActive} activeStory={activeStory} />
+          <StoryFooter
+            stories={stories}
+            active={isActive}
+            activeStory={activeStory}
+          />
         </Animated.View>
       ) : (
-        <StoryFooter stories={stories} active={isActive} activeStory={activeStory} />
+        <StoryFooter
+          stories={stories}
+          active={isActive}
+          activeStory={activeStory}
+        />
       )}
     </StoryAnimation>
   );

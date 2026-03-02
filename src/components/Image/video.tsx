@@ -25,7 +25,12 @@ interface OnLoadData {
 }
 
 const StoryVideo: FC<StoryVideoProps> = ( {
-  source, paused, isActive, onLoad, onLayout, ...props
+  source,
+  paused,
+  isActive,
+  onLoad,
+  onLayout,
+  ...props
 } ) => {
 
   try {
@@ -187,9 +192,7 @@ const StoryVideo: FC<StoryVideoProps> = ( {
           }, 50 );
 
         } catch ( e ) {
-
           // Silently ignore errors if video is not ready
-
         }
 
       }
@@ -386,9 +389,15 @@ const StoryVideo: FC<StoryVideoProps> = ( {
 
         if ( videoElement ) {
 
-          videoElement.removeEventListener( 'loadedmetadata', handleLoadedMetadata );
+          videoElement.removeEventListener(
+            'loadedmetadata',
+            handleLoadedMetadata,
+          );
           videoElement.removeEventListener( 'canplay', handleCanPlay );
-          videoElement.removeEventListener( 'durationchange', handleDurationChange );
+          videoElement.removeEventListener(
+            'durationchange',
+            handleDurationChange,
+          );
           videoElement.removeEventListener( 'loadeddata', handleCanPlay );
 
         }
@@ -424,7 +433,7 @@ const StoryVideo: FC<StoryVideoProps> = ( {
         }
 
       },
-      [ paused.value ],
+      [ paused ],
     );
 
     useAnimatedReaction(
@@ -463,7 +472,7 @@ const StoryVideo: FC<StoryVideoProps> = ( {
         }
 
       },
-      [ isActive.value ],
+      [ isActive ],
     );
 
     /**
@@ -481,7 +490,11 @@ const StoryVideo: FC<StoryVideoProps> = ( {
       }
 
       const duration = data?.duration;
-      if ( typeof duration === 'number' && !Number.isNaN( duration ) && duration > 0 ) {
+      if (
+        typeof duration === 'number'
+        && !Number.isNaN( duration )
+        && duration > 0
+      ) {
 
         isVideoReadyRef.current = true;
 
@@ -528,7 +541,12 @@ const StoryVideo: FC<StoryVideoProps> = ( {
 
         // Get duration from the video element if possible
         const videoElement = ref.current?.getInternalPlayer?.();
-        if ( videoElement && typeof videoElement.duration === 'number' && !Number.isNaN( videoElement.duration ) && videoElement.duration > 0 ) {
+        if (
+          videoElement
+          && typeof videoElement.duration === 'number'
+          && !Number.isNaN( videoElement.duration )
+          && videoElement.duration > 0
+        ) {
 
           isVideoReadyRef.current = true;
 
@@ -572,9 +590,16 @@ const StoryVideo: FC<StoryVideoProps> = ( {
       if ( Platform.OS === 'web' && !isVideoReadyRef.current ) {
 
         const videoElement = ref.current?.getInternalPlayer?.();
-        const duration = videoElement?.duration || data?.seekableDuration || data?.playableDuration;
+        const duration = videoElement?.duration
+          || data?.seekableDuration
+          || data?.playableDuration;
 
-        if ( duration && typeof duration === 'number' && !Number.isNaN( duration ) && duration > 0 ) {
+        if (
+          duration
+          && typeof duration === 'number'
+          && !Number.isNaN( duration )
+          && duration > 0
+        ) {
 
           isVideoReadyRef.current = true;
 
@@ -601,12 +626,14 @@ const StoryVideo: FC<StoryVideoProps> = ( {
 
     // Buffer configuration for HLS streams on iOS
     // This helps prevent buffering pauses during playback
-    const bufferConfig = Platform.OS === 'ios' ? {
-      minBufferMs: 15000,
-      maxBufferMs: 50000,
-      bufferForPlaybackMs: 2500,
-      bufferForPlaybackAfterRebufferMs: 5000,
-    } : undefined;
+    const bufferConfig = Platform.OS === 'ios'
+      ? {
+        minBufferMs: 15000,
+        maxBufferMs: 50000,
+        bufferForPlaybackMs: 2500,
+        bufferForPlaybackAfterRebufferMs: 5000,
+      }
+      : undefined;
 
     return (
       <Video

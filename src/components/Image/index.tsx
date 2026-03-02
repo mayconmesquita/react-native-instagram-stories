@@ -1,7 +1,11 @@
 import { Image, View, Platform } from 'react-native';
 import React, { FC, memo, useState } from 'react';
 import Animated, {
-  runOnJS, useAnimatedReaction, useAnimatedStyle, useDerivedValue, useSharedValue,
+  runOnJS,
+  useAnimatedReaction,
+  useAnimatedStyle,
+  useDerivedValue,
+  useSharedValue,
 } from 'react-native-reanimated';
 import { StoryImageProps } from '../../core/dto/componentsDTO';
 import Loader from '../Loader';
@@ -11,14 +15,29 @@ import StoryVideo from './video';
 import { StoryItemProps } from '../../core/dto/instagramStoriesDTO';
 
 const StoryImage: FC<StoryImageProps> = ( {
-  stories, activeStory, defaultStory, isDefaultVideo, paused, videoProps, isActive,
-  mediaContainerStyle, imageStyles, imageProps, videoDuration, loaderColor,
-  loaderBackgroundColor, onImageLayout, onLoad,
+  stories,
+  activeStory,
+  defaultStory,
+  isDefaultVideo,
+  paused,
+  videoProps,
+  isActive,
+  mediaContainerStyle,
+  imageStyles,
+  imageProps,
+  videoDuration,
+  loaderColor,
+  loaderBackgroundColor,
+  onImageLayout,
+  onLoad,
 } ) => {
 
-  const [ data, setData ] = useState<{ data?: StoryItemProps, isVideo?: boolean }>(
-    { data: defaultStory, isVideo: isDefaultVideo },
-  );
+  const [ data, setData ] = useState<{
+    data?: StoryItemProps;
+    isVideo?: boolean;
+  }>( { data: defaultStory, isVideo: isDefaultVideo } );
+  // Web-only: track isActive as React state to avoid reading .value during render
+  const [ isActiveState, setIsActiveState ] = useState( false );
 
   const loading = useSharedValue( true );
   const color = useSharedValue( loaderColor ? [ loaderColor ] : LOADER_COLORS );
@@ -66,7 +85,11 @@ const StoryImage: FC<StoryImageProps> = ( {
 
     const nextStory = stories[stories.indexOf( story ) + 1];
 
-    if ( nextStory && nextStory.mediaType !== 'video' && ( nextStory.source as any )?.uri ) {
+    if (
+      nextStory
+      && nextStory.mediaType !== 'video'
+      && ( nextStory.source as any )?.uri
+    ) {
 
       Image.prefetch( ( nextStory.source as any )?.uri );
 
@@ -77,18 +100,27 @@ const StoryImage: FC<StoryImageProps> = ( {
   useAnimatedReaction(
     () => isActive.value,
     ( res, prev ) => res !== prev && res && runOnJS( onImageChange )(),
-    [ isActive.value, onImageChange ],
+    [ isActive, onImageChange ],
   );
 
   useAnimatedReaction(
     () => activeStory.value,
     ( res, prev ) => res !== prev && runOnJS( onImageChange )(),
-    [ activeStory.value, onImageChange ],
+    [ activeStory, onImageChange ],
+  );
+
+  // Sync isActive to React state (web only, for conditional rendering in JSX)
+  useAnimatedReaction(
+    () => isActive.value,
+    ( res ) => runOnJS( setIsActiveState )( res ),
+    [ isActive ],
   );
 
   const onContentLoad = ( newDuration?: number ) => {
 
-    const animationDuration = ( data?.data?.mediaType === 'video' ? videoDuration : undefined ) ?? data.data?.animationDuration ?? newDuration;
+    const animationDuration = ( data?.data?.mediaType === 'video' ? videoDuration : undefined )
+      ?? data.data?.animationDuration
+      ?? newDuration;
     duration.value = animationDuration;
 
     loading.value = false;
@@ -103,22 +135,25 @@ const StoryImage: FC<StoryImageProps> = ( {
 
   return (
     <>
-      <Animated.View style={[ ImageStyles.container, loaderHideStyle, loaderBackgroundStyle ]}>
+      <Animated.View
+        style={[ ImageStyles.container, loaderHideStyle, loaderBackgroundStyle ]}
+      >
         <Loader loading={loading} color={color} size={50} />
       </Animated.View>
       <View style={[ ImageStyles.image, mediaContainerStyle ]}>
-        {data.data?.source && (
-          data.isVideo ? (
+        {data.data?.source
+          && ( data.isVideo ? (
             <>
               {/* Only render video when this story is active on WEB */}
               {/* This prevents preloading videos in background on web */}
               {/* On native (iOS/Android), always render for better performance */}
-              {Platform.OS === 'web' && !isActive.value ? (
+              {Platform.OS === 'web' && !isActiveState ? (
                 <View
                   style={{ width: WIDTH, aspectRatio: 0.5626 }}
-                  onLayout={( e ) => onImageLayout(
-                    Math.min( HEIGHT, e.nativeEvent.layout.height ),
-                  )}
+                  onLayout={( e ) => onImageLayout( Math.min(
+                    HEIGHT,
+                    e.nativeEvent.layout.height,
+                  ) )}
                 />
               ) : (
                 <StoryVideo
@@ -141,8 +176,7 @@ const StoryImage: FC<StoryImageProps> = ( {
               onLoad={() => onContentLoad()}
               {...imageProps}
             />
-          )
-        )}
+          ) )}
       </View>
     </>
   );

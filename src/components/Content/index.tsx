@@ -10,11 +10,16 @@ const StoryContent: FC<StoryContentProps> = ( { stories, active, activeStory } )
 
   const [ storyIndex, setStoryIndex ] = useState( 0 );
 
-  const onChange = async () => {
+  // Only capture plain IDs in the worklet to avoid Reanimated serialising
+  // the full story objects (which carry renderContent closures → storiesRef)
+  // as read-only shareables, which would break React ref mutation.
+  const storyIds = stories.map( ( item ) => item.id );
+
+  const onChange = () => {
 
     'worklet';
 
-    const index = stories.findIndex( ( item ) => item.id === activeStory.value );
+    const index = storyIds.findIndex( ( id ) => id === activeStory.value );
     if ( active.value && index >= 0 && index !== storyIndex ) {
 
       runOnJS( setStoryIndex )( index );
@@ -26,13 +31,13 @@ const StoryContent: FC<StoryContentProps> = ( { stories, active, activeStory } )
   useAnimatedReaction(
     () => active.value,
     ( res, prev ) => res !== prev && onChange(),
-    [ active.value, onChange ],
+    [ active, onChange ],
   );
 
   useAnimatedReaction(
     () => activeStory.value,
     ( res, prev ) => res !== prev && onChange(),
-    [ activeStory.value, onChange ],
+    [ activeStory, onChange ],
   );
 
   const content = useMemo( () => stories[storyIndex]?.renderContent?.(), [ storyIndex ] );

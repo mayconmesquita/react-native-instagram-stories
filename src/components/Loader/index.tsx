@@ -3,35 +3,43 @@ import React, {
 } from 'react';
 import { ActivityIndicator, Platform } from 'react-native';
 import Animated, {
-  cancelAnimation, interpolate, runOnJS, useAnimatedProps, useAnimatedReaction, useAnimatedStyle,
-  useSharedValue, withRepeat, withTiming,
+  cancelAnimation,
+  interpolate,
+  runOnJS,
+  useAnimatedProps,
+  useAnimatedReaction,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
 } from 'react-native-reanimated';
 import {
   Circle, Defs, LinearGradient, Stop, Svg,
 } from 'react-native-svg';
 import {
-  AVATAR_SIZE, LOADER_ID, LOADER_URL, STROKE_WIDTH,
+  AVATAR_SIZE,
+  LOADER_ID,
+  LOADER_URL,
+  STROKE_WIDTH,
 } from '../../core/constants';
 import { StoryLoaderProps } from '../../core/dto/componentsDTO';
 
 // Only create animated components for native platforms
 // Web doesn't support setNativeProps on SVG elements
-const AnimatedCircle = Platform.OS !== 'web'
-  ? Animated.createAnimatedComponent( Circle )
-  : Circle;
-const AnimatedSvg = Platform.OS !== 'web'
-  ? Animated.createAnimatedComponent( Svg )
-  : Svg;
+const AnimatedCircle = Platform.OS !== 'web' ? Animated.createAnimatedComponent( Circle ) : Circle;
+const AnimatedSvg = Platform.OS !== 'web' ? Animated.createAnimatedComponent( Svg ) : Svg;
 
 const Loader: FC<StoryLoaderProps> = ( {
-  loading, color, size = AVATAR_SIZE + 10,
+  loading,
+  color,
+  size = AVATAR_SIZE + 10,
 } ) => {
 
   const RADIUS = useMemo( () => ( size - STROKE_WIDTH ) / 2, [ size ] );
   const CIRCUMFERENCE = useMemo( () => RADIUS * 2 * Math.PI, [ RADIUS ] );
 
-  const [ colors, setColors ] = useState<string[]>( color.value );
-  const [ isLoading, setIsLoading ] = useState( loading.value );
+  const [ colors, setColors ] = useState<string[]>( [] );
+  const [ isLoading, setIsLoading ] = useState( false );
 
   const rotation = useSharedValue( 0 );
   const progress = useSharedValue( 0 );
@@ -46,7 +54,11 @@ const Loader: FC<StoryLoaderProps> = ( {
     }
 
     return {
-      strokeDashoffset: interpolate( progress.value, [ 0, 1 ], [ 0, CIRCUMFERENCE * 2 / 3 ] ),
+      strokeDashoffset: interpolate(
+        progress.value,
+        [ 0, 1 ],
+        [ 0, ( CIRCUMFERENCE * 2 ) / 3 ],
+      ),
     };
 
   } );
@@ -78,11 +90,16 @@ const Loader: FC<StoryLoaderProps> = ( {
     }
 
     progress.value = withRepeat( withTiming( 1, { duration: 3000 } ), -1, true );
-    rotation.value = withRepeat( withTiming( 720, { duration: 3000 } ), -1, false, () => {
+    rotation.value = withRepeat(
+      withTiming( 720, { duration: 3000 } ),
+      -1,
+      false,
+      () => {
 
-      rotation.value = 0;
+        rotation.value = 0;
 
-    } );
+      },
+    );
 
   };
 
@@ -123,13 +140,22 @@ const Loader: FC<StoryLoaderProps> = ( {
   useAnimatedReaction(
     () => loading.value,
     ( res ) => ( res ? startAnimation() : stopAnimation() ),
-    [ loading.value ],
+    [ loading ],
   );
   useAnimatedReaction(
     () => color.value,
     ( res ) => onColorChange( res ),
-    [ color.value ],
+    [ color ],
   );
+
+  // Initialise React state from shared values after mount to avoid reading
+  // .value during the render phase (Reanimated strict-mode warning).
+  useEffect( () => {
+
+    setColors( color.value );
+    setIsLoading( loading.value );
+
+  }, [] );
 
   // Web fallback: Poll the loading value since useAnimatedReaction
   // may not work reliably on web

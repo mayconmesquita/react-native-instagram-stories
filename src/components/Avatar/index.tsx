@@ -1,9 +1,16 @@
-import React, { FC, memo } from 'react';
+import React, {
+  FC, memo, useState, useEffect,
+} from 'react';
 import {
   View, Image, Text, TouchableOpacity,
 } from 'react-native';
 import Animated, {
-  useSharedValue, useAnimatedStyle, useDerivedValue, withTiming,
+  useSharedValue,
+  useAnimatedStyle,
+  useDerivedValue,
+  withTiming,
+  useAnimatedReaction,
+  runOnJS,
 } from 'react-native-reanimated';
 import { StoryAvatarProps } from '../../core/dto/componentsDTO';
 import AvatarStyles from './Avatar.styles';
@@ -31,7 +38,9 @@ const StoryAvatar: FC<StoryAvatarProps> = ( {
 } ) => {
 
   const loaded = useSharedValue( false );
-  const isLoading = useDerivedValue( () => loadingStory.value === id || !loaded.value );
+  const isLoading = useDerivedValue(
+    () => loadingStory.value === id || !loaded.value,
+  );
   const seen = useDerivedValue(
     () => seenStories.value[id] === stories[stories.length - 1]?.id,
   );
@@ -43,13 +52,27 @@ const StoryAvatar: FC<StoryAvatarProps> = ( {
 
   };
 
-  const imageAnimatedStyles = useAnimatedStyle( () => (
-    { opacity: withTiming( isLoading.value ? 0.5 : 1 ) }
-  ) );
+  const imageAnimatedStyles = useAnimatedStyle( () => ( {
+    opacity: withTiming( isLoading.value ? 0.5 : 1 ),
+  } ) );
+
+  const [ seenState, setSeenState ] = useState( false );
+
+  useEffect( () => {
+
+    setSeenState( seenStories.value[id] === stories[stories.length - 1]?.id );
+
+  }, [] );
+
+  useAnimatedReaction(
+    () => seen.value,
+    ( res ) => runOnJS( setSeenState )( res ),
+    [ seen ],
+  );
 
   if ( renderAvatar ) {
 
-    return renderAvatar( seen.value );
+    return renderAvatar( seenState );
 
   }
 
@@ -62,14 +85,26 @@ const StoryAvatar: FC<StoryAvatarProps> = ( {
   return (
     <View style={AvatarStyles.name}>
       <View style={AvatarStyles.container}>
-        <TouchableOpacity activeOpacity={0.6} onPress={onPress} testID={`${id}StoryAvatar${stories.length}Story`}>
-          <Loader loading={isLoading} color={loaderColor} size={size + AVATAR_OFFSET * 2} />
+        <TouchableOpacity
+          activeOpacity={0.6}
+          onPress={onPress}
+          testID={`${id}StoryAvatar${stories.length}Story`}
+        >
+          <Loader
+            loading={isLoading}
+            color={loaderColor}
+            size={size + AVATAR_OFFSET * 2}
+          />
           <AnimatedImage
             source={avatarSource}
             style={[
               AvatarStyles.avatar,
               imageAnimatedStyles,
-              { width: size, height: size, borderRadius: avatarBorderRadius ?? ( size / 2 ) },
+              {
+                width: size,
+                height: size,
+                borderRadius: avatarBorderRadius ?? size / 2,
+              },
             ]}
             testID="storyAvatarImage"
             onLoad={onLoad}

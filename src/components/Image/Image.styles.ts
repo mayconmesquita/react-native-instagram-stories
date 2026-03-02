@@ -12,7 +12,12 @@ export default StyleSheet.create( {
     zIndex: 2,
   },
   image: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    // backgroundColor: 'red',
+    marginTop: -100,
+    borderRadius: 20,
+    overflow: 'hidden',
   },
 } );

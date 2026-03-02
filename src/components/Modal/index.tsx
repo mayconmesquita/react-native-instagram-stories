@@ -1,554 +1,667 @@
 import React, {
-  forwardRef, memo, useEffect, useImperativeHandle, useState,
+  forwardRef,
+  memo,
+  useEffect,
+  useImperativeHandle,
+  useState,
 } from 'react';
 import {
-  GestureResponderEvent, Modal, Platform, Pressable, View,
+  GestureResponderEvent,
+  Modal,
+  Platform,
+  Pressable,
+  View,
 } from 'react-native';
 import Animated, {
-  cancelAnimation, interpolate, runOnJS, useAnimatedReaction,
+  cancelAnimation,
+  interpolate,
+  runOnJS,
+  useAnimatedReaction,
   useAnimatedStyle,
-  useDerivedValue, useSharedValue, withTiming,
+  useDerivedValue,
+  useSharedValue,
+  withTiming,
 } from 'react-native-reanimated';
 import {
-  HEIGHT, LONG_PRESS_DURATION, STORY_ANIMATION_DURATION, WIDTH,
+  HEIGHT,
+  LONG_PRESS_DURATION,
+  STORY_ANIMATION_DURATION,
+  WIDTH,
 } from '../../core/constants';
-import { GestureContext, StoryModalProps, StoryModalPublicMethods } from '../../core/dto/componentsDTO';
+import {
+  GestureContext,
+  StoryModalProps,
+  StoryModalPublicMethods,
+} from '../../core/dto/componentsDTO';
 import GestureHandler from './gesture';
 import StoryList from '../List';
 import ModalStyles from './Modal.styles';
 
-const StoryModal = forwardRef<StoryModalPublicMethods, StoryModalProps>( ( {
-  stories, seenStories, duration, videoDuration, storyAvatarSize, textStyle, containerStyle,
-  storyContainerStyles, mediaContainerStyle,
-  backgroundColor, videoProps, closeIconColor, modalAnimationDuration = STORY_ANIMATION_DURATION,
-  storyAnimationDuration = STORY_ANIMATION_DURATION, hideElementsOnLongPress, loopingStories = 'none',
-  statusBarTranslucent, loaderColor, loaderBackgroundColor, onLoad, onShow, onHide,
-  onSeenStoriesChange, onSwipeUp, onStoryStart, onStoryEnd, footerComponent, ...props
-}, ref ) => {
-
-  const [ visible, setVisible ] = useState( false );
-  const [ activeUserIndex, setActiveUserIndex ] = useState( 0 );
-  const isGestureActive = useSharedValue( false );
-
-  const x = useSharedValue( 0 );
-  const y = useSharedValue( HEIGHT );
-  const animation = useSharedValue( 0 );
-  const currentStory = useSharedValue( stories[0]?.stories[0]?.id );
-  const paused = useSharedValue( false );
-  const durationValue = useSharedValue( duration );
-  const isLongPress = useSharedValue( false );
-  const hideElements = useSharedValue( false );
-  const lastViewed = useSharedValue<{ [key: string]:number }>( {} );
-  const firstRender = useSharedValue( true );
-
-  const userIndex = useDerivedValue( () => Math.round( x.value / WIDTH ) );
-  const storyIndex = useDerivedValue( () => stories[userIndex.value]?.stories.findIndex(
-    ( story ) => story.id === currentStory.value,
-  ) );
-  const userId = useDerivedValue( () => stories[userIndex.value]?.id );
-  const previousUserId = useDerivedValue( () => stories[userIndex.value - 1]?.id );
-  const nextUserId = useDerivedValue( () => stories[userIndex.value + 1]?.id );
-
-  // Separate active user id that only switches when the story is >= 95% on screen
-  // during a live pan gesture. After the finger lifts, follows Math.round normally.
-  const activeUserId = useSharedValue<string | undefined>( stories[0]?.id );
-
-  useAnimatedReaction(
-    () => x.value,
-    ( xVal ) => {
-
-      const idx = Math.round( xVal / WIDTH );
-      const fraction = Math.abs( xVal / WIDTH - idx );
-
-      // During an active pan gesture only flip when within 5% of the snapped position
-      // (i.e. story is 95%+ on screen). Outside of a gesture (snap animations),
-      // always follow Math.round so videos start as soon as the snap settles.
-      if ( !isGestureActive.value || fraction < 0.05 ) {
-
-        const newId = stories[idx]?.id;
-        if ( newId !== undefined ) {
-
-          activeUserId.value = newId;
-
-        }
-
-      }
-
+const StoryModal = forwardRef<StoryModalPublicMethods, StoryModalProps>(
+  (
+    {
+      stories,
+      seenStories,
+      duration,
+      videoDuration,
+      storyAvatarSize,
+      textStyle,
+      containerStyle,
+      storyContainerStyles,
+      mediaContainerStyle,
+      backgroundColor,
+      videoProps,
+      closeIconColor,
+      modalAnimationDuration = STORY_ANIMATION_DURATION,
+      storyAnimationDuration = STORY_ANIMATION_DURATION,
+      hideElementsOnLongPress,
+      loopingStories = 'none',
+      statusBarTranslucent,
+      loaderColor,
+      loaderBackgroundColor,
+      onLoad,
+      onShow,
+      onHide,
+      onSeenStoriesChange,
+      onSwipeUp,
+      onStoryStart,
+      onStoryEnd,
+      footerComponent,
+      ...props
     },
-    [ x.value ],
-  );
-  const previousStory = useDerivedValue( () => ( storyIndex.value !== undefined
-    ? stories[userIndex.value]?.stories[storyIndex.value - 1]?.id
-    : undefined ) );
-  const nextStory = useDerivedValue( () => ( storyIndex.value !== undefined
-    ? stories[userIndex.value]?.stories[storyIndex.value + 1]?.id
-    : undefined ) );
-
-  const animatedStyles = useAnimatedStyle( () => ( { top: y.value } ) );
-  const backgroundAnimatedStyles = useAnimatedStyle( () => ( {
-    opacity: interpolate( y.value, [ 0, HEIGHT ], [ 1, 0 ] ),
-    backgroundColor,
-  } ) );
-
-  const onClose = () => {
-
-    'worklet';
-
-    y.value = withTiming(
-      HEIGHT,
-      { duration: modalAnimationDuration },
-      () => runOnJS( setVisible )( false ),
-    );
-    lastViewed.value = {};
-    cancelAnimation( animation );
-
-  };
-
-  const stopAnimation = () => {
-
-    'worklet';
-
-    cancelAnimation( animation );
-
-  };
-
-  const startAnimation = ( resume = false, newDuration?: number ) => {
-
-    'worklet';
-
-    if ( newDuration ) {
-
-      durationValue.value = newDuration;
-
-    } else {
-
-      newDuration = durationValue.value;
-
-    }
-
-    if ( resume ) {
-
-      newDuration -= animation.value * newDuration;
-
-    } else {
-
-      animation.value = 0;
-
-      if ( userId.value !== undefined && currentStory.value !== undefined ) {
-
-        runOnJS( onSeenStoriesChange )( userId.value, currentStory.value );
-
-      }
-
-      if ( userId.value !== undefined && storyIndex.value! >= 0 ) {
-
-        lastViewed.value = { ...lastViewed.value, [userId.value]: storyIndex.value ?? 0 };
-
-      }
-
-    }
-
-    animation.value = withTiming( 1, { duration: newDuration } );
-
-  };
-
-  const scrollTo = (
-    id: string,
-    animated = true,
-    sameUser = false,
-    previousUser?: string,
-    index?: number,
+    ref,
   ) => {
 
-    'worklet';
-
-    const newUserIndex = stories.findIndex( ( story ) => story.id === id );
-    const newX = newUserIndex * WIDTH;
-
-    x.value = animated ? withTiming( newX, { duration: storyAnimationDuration } ) : newX;
-
-    if ( sameUser ) {
-
-      startAnimation( true );
-
-      return;
-
-    }
-
-    if ( onStoryEnd && animated ) {
-
-      runOnJS( onStoryEnd )( previousUser ?? userId.value, currentStory.value );
-
-    }
-
-    const newStoryIndex = lastViewed.value[id] !== undefined
-      ? lastViewed.value[id]!
-      : ( ( stories[newUserIndex]?.stories.findIndex(
-        ( story ) => story.id === seenStories.value[id],
-      ) ?? 0 ) + 1 );
-    const userStories = stories[newUserIndex]?.stories;
-    const newStory = userStories?.[index ?? newStoryIndex]?.id ?? userStories?.[0]?.id;
-    currentStory.value = newStory;
-
-    if ( onStoryStart ) {
-
-      runOnJS( onStoryStart )( id, newStory );
-
-    }
-
-  };
-
-  const toNextStory = ( value = true ) => {
-
-    'worklet';
-
-    if ( !value ) {
-
-      return;
-
-    }
-
-    if ( !nextStory.value ) {
-
-      if ( nextUserId.value ) {
-
-        scrollTo( nextUserId.value );
-
-      } else if ( stories[0]?.id && loopingStories === 'all' ) {
-
-        scrollTo( stories[0].id, false );
-
-      } else if ( userId.value && loopingStories === 'onlyLast' ) {
-
-        scrollTo( userId.value, false, undefined, undefined, 0 );
-
-      } else {
-
-        onClose();
-
-      }
-
-    } else {
-
-      if ( onStoryEnd ) {
-
-        runOnJS( onStoryEnd )( userId.value, currentStory.value );
-
-      }
-
-      if ( onStoryStart ) {
-
-        runOnJS( onStoryStart )( userId.value, nextStory.value );
-
-      }
-
-      animation.value = 0;
-      currentStory.value = nextStory.value;
-
-    }
-
-  };
-
-  const toPreviousStory = () => {
-
-    'worklet';
-
-    if ( !previousStory.value ) {
-
-      if ( previousUserId.value ) {
-
-        scrollTo( previousUserId.value );
-
-      } else {
-
-        return false;
-
-      }
-
-    } else {
-
-      if ( onStoryEnd ) {
-
-        runOnJS( onStoryEnd )( userId.value, currentStory.value );
-
-      }
-
-      if ( onStoryStart ) {
-
-        runOnJS( onStoryStart )( userId.value, previousStory.value );
-
-      }
-
-      animation.value = 0;
-      currentStory.value = previousStory.value;
-
-    }
-
-    return true;
-
-  };
-
-  const show = ( id: string ) => {
-
-    setVisible( true );
-    scrollTo( id, false );
-
-  };
-
-  const onGestureStart = ( e: any, ctx: GestureContext ) => {
-
-    'worklet';
-
-    ctx.x = x.value;
-    ctx.userId = userId.value;
-    paused.value = true;
-    isGestureActive.value = true;
-
-  };
-
-  const onGestureUpdate = ( e: any, ctx: GestureContext ) => {
-
-    'worklet';
-
-    if ( ctx.x === x.value
-      && ( ctx.vertical || ( Math.abs( e.velocityX ) < Math.abs( e.velocityY ) ) ) ) {
-
-      ctx.vertical = true;
-      y.value = e.translationY / 2;
-
-    } else {
-
-      ctx.moving = true;
-      x.value = Math.max(
-        0,
-        Math.min( ctx.x + -e.translationX, WIDTH * ( stories.length - 1 ) ),
-      );
-
-    }
-
-  };
-
-  const onGestureEnd = ( e: any, ctx: GestureContext ) => {
-
-    'worklet';
-
-    if ( ctx.vertical ) {
-
-      // closing from swipe up or down
-      if ( e.translationY < -500 || e.translationY > 70 ) {
-
-        onClose();
-
-      } else {
-
-        if ( e.translationY < -100 && onSwipeUp ) {
-
-          runOnJS( onSwipeUp )(
-            stories[userIndex.value]?.id,
-            stories[userIndex.value]?.stories[storyIndex.value ?? 0]?.id,
-          );
+    const [ visible, setVisible ] = useState( false );
+    const [ activeUserIndex, setActiveUserIndex ] = useState( 0 );
+    const isGestureActive = useSharedValue( false );
+
+    const x = useSharedValue( 0 );
+    const y = useSharedValue( HEIGHT );
+    const animation = useSharedValue( 0 );
+    const currentStory = useSharedValue( stories[0]?.stories[0]?.id );
+    const paused = useSharedValue( false );
+    const durationValue = useSharedValue( duration );
+    const isLongPress = useSharedValue( false );
+    const hideElements = useSharedValue( false );
+    const lastViewed = useSharedValue<{ [key: string]: number }>( {} );
+    const firstRender = useSharedValue( true );
+
+    // Worklet-safe snapshot: only plain IDs, no closures/refs from story objects.
+    // All worklets use this instead of `stories` to prevent Reanimated from
+    // serialising renderFooter/renderContent closures (which carry storiesRef)
+    // as read-only shareables — which would break React ref mutation.
+    const storyDataSV = useSharedValue(
+      stories.map( ( s ) => ( {
+        id: s.id,
+        storyIds: s.stories.map( ( st ) => st.id ),
+      } ) ),
+    );
+    useEffect( () => {
+
+      storyDataSV.value = stories.map( ( s ) => ( {
+        id: s.id,
+        storyIds: s.stories.map( ( st ) => st.id ),
+      } ) );
+
+    }, [ stories ] );
+
+    const userIndex = useDerivedValue( () => Math.round( x.value / WIDTH ) );
+    const storyIndex = useDerivedValue(
+      () => storyDataSV.value[userIndex.value]?.storyIds.findIndex(
+        ( id ) => id === currentStory.value,
+      ),
+    );
+    const userId = useDerivedValue(
+      () => storyDataSV.value[userIndex.value]?.id,
+    );
+    const previousUserId = useDerivedValue(
+      () => storyDataSV.value[userIndex.value - 1]?.id,
+    );
+    const nextUserId = useDerivedValue(
+      () => storyDataSV.value[userIndex.value + 1]?.id,
+    );
+
+    // Separate active user id that only switches when the story is >= 95% on screen
+    // during a live pan gesture. After the finger lifts, follows Math.round normally.
+    const activeUserId = useSharedValue<string | undefined>( stories[0]?.id );
+
+    useAnimatedReaction(
+      () => x.value,
+      ( xVal ) => {
+
+        const idx = Math.round( xVal / WIDTH );
+        const fraction = Math.abs( xVal / WIDTH - idx );
+
+        // During an active pan gesture only flip when within 5% of the snapped position
+        // (i.e. story is 95%+ on screen). Outside of a gesture (snap animations),
+        // always follow Math.round so videos start as soon as the snap settles.
+        if ( !isGestureActive.value || fraction < 0.05 ) {
+
+          const newId = storyDataSV.value[idx]?.id;
+          if ( newId !== undefined ) {
+
+            activeUserId.value = newId;
+
+          }
 
         }
 
-        y.value = withTiming( 0 );
-        startAnimation( true );
+      },
+      [ x ],
+    );
+    const previousStory = useDerivedValue( () => ( storyIndex.value !== undefined
+      ? storyDataSV.value[userIndex.value]?.storyIds[storyIndex.value - 1]
+      : undefined ) );
+    const nextStory = useDerivedValue( () => ( storyIndex.value !== undefined
+      ? storyDataSV.value[userIndex.value]?.storyIds[storyIndex.value + 1]
+      : undefined ) );
 
-      }
+    const animatedStyles = useAnimatedStyle( () => ( { top: y.value } ) );
+    const backgroundAnimatedStyles = useAnimatedStyle( () => ( {
+      opacity: interpolate( y.value, [ 0, HEIGHT ], [ 1, 0 ] ),
+      backgroundColor,
+    } ) );
 
-    } else if ( ctx.moving ) {
+    const onClose = () => {
 
-      const diff = x.value - ctx.x;
-      let newX;
+      'worklet';
 
-      if ( Math.abs( diff ) < WIDTH / 4 ) {
+      y.value = withTiming(
+        HEIGHT,
+        { duration: modalAnimationDuration },
+        () => runOnJS( setVisible )( false ),
+      );
+      lastViewed.value = {};
+      cancelAnimation( animation );
 
-        newX = ctx.x;
+    };
+
+    const stopAnimation = () => {
+
+      'worklet';
+
+      cancelAnimation( animation );
+
+    };
+
+    const startAnimation = ( resume = false, newDuration?: number ) => {
+
+      'worklet';
+
+      if ( newDuration ) {
+
+        durationValue.value = newDuration;
 
       } else {
 
-        newX = diff > 0
-          ? Math.ceil( x.value / WIDTH ) * WIDTH
-          : Math.floor( x.value / WIDTH ) * WIDTH;
+        newDuration = durationValue.value;
 
       }
 
-      const newUserId = stories[Math.round( newX / WIDTH )]?.id;
-      if ( newUserId !== undefined ) {
+      if ( resume ) {
 
-        scrollTo( newUserId, true, newUserId === ctx.userId, ctx.userId );
+        newDuration -= animation.value * newDuration;
+
+      } else {
+
+        animation.value = 0;
+
+        if ( userId.value !== undefined && currentStory.value !== undefined ) {
+
+          runOnJS( onSeenStoriesChange )( userId.value, currentStory.value );
+
+        }
+
+        if ( userId.value !== undefined && storyIndex.value! >= 0 ) {
+
+          lastViewed.value = {
+            ...lastViewed.value,
+            [userId.value]: storyIndex.value ?? 0,
+          };
+
+        }
 
       }
 
-    }
+      animation.value = withTiming( 1, { duration: newDuration } );
 
-    ctx.moving = false;
-    ctx.vertical = false;
-    ctx.userId = undefined;
-    hideElements.value = false;
-    paused.value = false;
-    isGestureActive.value = false;
+    };
 
-    // Trigger re-render on web after gesture completes
-    if ( Platform.OS === 'web' ) {
+    const scrollTo = (
+      id: string,
+      animated = true,
+      sameUser = false,
+      previousUser?: string,
+      index?: number,
+    ) => {
 
-      runOnJS( setActiveUserIndex )( userIndex.value );
+      'worklet';
 
-    }
+      const data = storyDataSV.value;
+      const newUserIndex = data.findIndex( ( s ) => s.id === id );
+      const newX = newUserIndex * WIDTH;
 
-  };
+      x.value = animated
+        ? withTiming( newX, { duration: storyAnimationDuration } )
+        : newX;
 
-  const onPressIn = () => {
-
-    stopAnimation();
-    paused.value = true;
-
-  };
-
-  const onLongPress = () => {
-
-    isLongPress.value = true;
-    hideElements.value = hideElementsOnLongPress ?? false;
-
-  };
-
-  const onPressOut = () => {
-
-    if ( !isLongPress.value ) {
-
-      return;
-
-    }
-
-    hideElements.value = false;
-    isLongPress.value = false;
-    paused.value = false;
-    startAnimation( true );
-
-  };
-
-  const onPress = ( { nativeEvent }: GestureResponderEvent ) => {
-
-    hideElements.value = false;
-
-    if ( isLongPress.value ) {
-
-      onPressOut();
-
-      return;
-
-    }
-
-    // Use pageX for web compatibility - locationX can be unreliable on web
-    // pageX gives absolute position, so we compare against WIDTH / 2
-    // On native, locationX works fine, but pageX also works
-    const tapX = nativeEvent.pageX ?? nativeEvent.locationX ?? 0;
-
-    if ( tapX < WIDTH / 2 ) {
-
-      const success = toPreviousStory();
-
-      if ( !success ) {
+      if ( sameUser ) {
 
         startAnimation( true );
 
+        return;
+
       }
 
-    } else {
+      if ( onStoryEnd && animated ) {
 
-      toNextStory();
+        runOnJS( onStoryEnd )( previousUser ?? userId.value, currentStory.value );
 
-    }
+      }
 
-    paused.value = false;
+      const newStoryIndex = lastViewed.value[id] !== undefined
+        ? lastViewed.value[id]!
+        : ( data[newUserIndex]?.storyIds.findIndex(
+          ( stId ) => stId === seenStories.value[id],
+        ) ?? 0 ) + 1;
+      const userStoryIds = data[newUserIndex]?.storyIds;
+      const newStory = userStoryIds?.[index ?? newStoryIndex] ?? userStoryIds?.[0];
+      currentStory.value = newStory;
 
-  };
+      if ( onStoryStart ) {
 
-  useImperativeHandle( ref, () => ( {
-    show,
-    hide: onClose,
-    pause: () => {
+        runOnJS( onStoryStart )( id, newStory );
+
+      }
+
+    };
+
+    const toNextStory = ( value = true ) => {
+
+      'worklet';
+
+      if ( !value ) {
+
+        return;
+
+      }
+
+      if ( !nextStory.value ) {
+
+        if ( nextUserId.value ) {
+
+          scrollTo( nextUserId.value );
+
+        } else if ( storyDataSV.value[0]?.id && loopingStories === 'all' ) {
+
+          scrollTo( storyDataSV.value[0].id, false );
+
+        } else if ( userId.value && loopingStories === 'onlyLast' ) {
+
+          scrollTo( userId.value, false, undefined, undefined, 0 );
+
+        } else {
+
+          onClose();
+
+        }
+
+      } else {
+
+        if ( onStoryEnd ) {
+
+          runOnJS( onStoryEnd )( userId.value, currentStory.value );
+
+        }
+
+        if ( onStoryStart ) {
+
+          runOnJS( onStoryStart )( userId.value, nextStory.value );
+
+        }
+
+        animation.value = 0;
+        currentStory.value = nextStory.value;
+
+      }
+
+    };
+
+    const toPreviousStory = () => {
+
+      'worklet';
+
+      if ( !previousStory.value ) {
+
+        if ( previousUserId.value ) {
+
+          scrollTo( previousUserId.value );
+
+        } else {
+
+          return false;
+
+        }
+
+      } else {
+
+        if ( onStoryEnd ) {
+
+          runOnJS( onStoryEnd )( userId.value, currentStory.value );
+
+        }
+
+        if ( onStoryStart ) {
+
+          runOnJS( onStoryStart )( userId.value, previousStory.value );
+
+        }
+
+        animation.value = 0;
+        currentStory.value = previousStory.value;
+
+      }
+
+      return true;
+
+    };
+
+    const show = ( id: string ) => {
+
+      setVisible( true );
+      scrollTo( id, false );
+
+    };
+
+    const onGestureStart = ( e: any, ctx: GestureContext ) => {
+
+      'worklet';
+
+      ctx.x = x.value;
+      ctx.userId = userId.value;
+      paused.value = true;
+      isGestureActive.value = true;
+
+    };
+
+    const onGestureUpdate = ( e: any, ctx: GestureContext ) => {
+
+      'worklet';
+
+      if (
+        ctx.x === x.value
+        && ( ctx.vertical || Math.abs( e.velocityX ) < Math.abs( e.velocityY ) )
+      ) {
+
+        ctx.vertical = true;
+        y.value = e.translationY / 2;
+
+      } else {
+
+        ctx.moving = true;
+        x.value = Math.max(
+          0,
+          Math.min(
+            ctx.x + -e.translationX,
+            WIDTH * ( storyDataSV.value.length - 1 ),
+          ),
+        );
+
+      }
+
+    };
+
+    const onGestureEnd = ( e: any, ctx: GestureContext ) => {
+
+      'worklet';
+
+      if ( ctx.vertical ) {
+
+        // closing from swipe up or down
+        if ( e.translationY < -500 || e.translationY > 70 ) {
+
+          onClose();
+
+        } else {
+
+          if ( e.translationY < -100 && onSwipeUp ) {
+
+            runOnJS( onSwipeUp )(
+              storyDataSV.value[userIndex.value]?.id,
+              storyDataSV.value[userIndex.value]?.storyIds[
+                storyIndex.value ?? 0
+              ],
+            );
+
+          }
+
+          y.value = withTiming( 0 );
+          startAnimation( true );
+
+        }
+
+      } else if ( ctx.moving ) {
+
+        const diff = x.value - ctx.x;
+        let newX;
+
+        if ( Math.abs( diff ) < WIDTH / 4 ) {
+
+          newX = ctx.x;
+
+        } else {
+
+          newX = diff > 0
+            ? Math.ceil( x.value / WIDTH ) * WIDTH
+            : Math.floor( x.value / WIDTH ) * WIDTH;
+
+        }
+
+        const newUserId = storyDataSV.value[Math.round( newX / WIDTH )]?.id;
+        if ( newUserId !== undefined ) {
+
+          scrollTo( newUserId, true, newUserId === ctx.userId, ctx.userId );
+
+        }
+
+      }
+
+      ctx.moving = false;
+      ctx.vertical = false;
+      ctx.userId = undefined;
+      hideElements.value = false;
+      paused.value = false;
+      isGestureActive.value = false;
+
+      // Trigger re-render on web after gesture completes
+      if ( Platform.OS === 'web' ) {
+
+        runOnJS( setActiveUserIndex )( userIndex.value );
+
+      }
+
+    };
+
+    const onPressIn = () => {
 
       stopAnimation();
       paused.value = true;
 
-    },
-    resume: () => {
+    };
 
+    const onLongPress = () => {
+
+      isLongPress.value = true;
+      hideElements.value = hideElementsOnLongPress ?? false;
+
+    };
+
+    const onPressOut = () => {
+
+      if ( !isLongPress.value ) {
+
+        return;
+
+      }
+
+      hideElements.value = false;
+      isLongPress.value = false;
+      paused.value = false;
       startAnimation( true );
+
+    };
+
+    const onPress = ( { nativeEvent }: GestureResponderEvent ) => {
+
+      hideElements.value = false;
+
+      if ( isLongPress.value ) {
+
+        onPressOut();
+
+        return;
+
+      }
+
+      // Use pageX for web compatibility - locationX can be unreliable on web
+      // pageX gives absolute position, so we compare against WIDTH / 2
+      // On native, locationX works fine, but pageX also works
+      const tapX = nativeEvent.pageX ?? nativeEvent.locationX ?? 0;
+
+      if ( tapX < WIDTH / 2 ) {
+
+        const success = toPreviousStory();
+
+        if ( !success ) {
+
+          startAnimation( true );
+
+        }
+
+      } else {
+
+        toNextStory();
+
+      }
+
       paused.value = false;
 
-    },
-    isPaused: () => paused.value,
-    getCurrentStory: () => ( { userId: userId.value, storyId: currentStory.value } ),
-    goToPreviousStory: toPreviousStory,
-    goToNextStory: toNextStory,
-    goToSpecificStory: ( newUserId, index ) => scrollTo( newUserId, true, false, undefined, index ),
-  } ), [ userId.value, currentStory.value ] );
+    };
 
-  useEffect( () => {
+    useImperativeHandle(
+      ref,
+      () => ( {
+        show,
+        hide: onClose,
+        pause: () => {
 
-    if ( visible ) {
+          stopAnimation();
+          paused.value = true;
 
-      if ( currentStory.value !== undefined ) {
+        },
+        resume: () => {
 
-        onShow?.( currentStory.value );
+          startAnimation( true );
+          paused.value = false;
+
+        },
+        isPaused: () => paused.value,
+        getCurrentStory: () => ( {
+          userId: userId.value,
+          storyId: currentStory.value,
+        } ),
+        goToPreviousStory: toPreviousStory,
+        goToNextStory: toNextStory,
+        goToSpecificStory: ( newUserId, index ) => scrollTo(
+          newUserId,
+          true,
+          false,
+          undefined,
+          index,
+        ),
+      } ),
+      [],
+    );
+
+    useEffect( () => {
+
+      if ( visible ) {
+
+        if ( currentStory.value !== undefined ) {
+
+          onShow?.( currentStory.value );
+
+        }
+        onLoad?.();
+
+        y.value = withTiming( 0, { duration: modalAnimationDuration } );
+
+      } else if ( currentStory.value !== undefined && !firstRender.value ) {
+
+        onHide?.( currentStory.value );
 
       }
-      onLoad?.();
 
-      y.value = withTiming( 0, { duration: modalAnimationDuration } );
+      firstRender.value = false;
 
-    } else if ( currentStory.value !== undefined && !firstRender.value ) {
+    }, [ visible ] );
 
-      onHide?.( currentStory.value );
+    useAnimatedReaction(
+      () => animation.value,
+      ( res, prev ) => res !== prev && toNextStory( res === 1 ),
+      [ animation ],
+    );
 
-    }
+    // Sync userIndex with React state for re-rendering on web
+    useAnimatedReaction(
+      () => userIndex.value,
+      ( res ) => {
 
-    firstRender.value = false;
+        if ( Platform.OS === 'web' && !isGestureActive.value ) {
 
-  }, [ visible ] );
+          runOnJS( setActiveUserIndex )( res );
 
-  useAnimatedReaction(
-    () => animation.value,
-    ( res, prev ) => res !== prev && toNextStory( res === 1 ),
-    [ animation.value ],
-  );
+        }
 
-  // Sync userIndex with React state for re-rendering on web
-  useAnimatedReaction(
-    () => userIndex.value,
-    ( res ) => {
+      },
+      [ userIndex ],
+    );
 
-      if ( Platform.OS === 'web' && !isGestureActive.value ) {
+    return (
+      <View>
+        <Modal
+          statusBarTranslucent={statusBarTranslucent}
+          visible={visible}
+          transparent
+          animationType="none"
+          testID="storyRNModal"
+          onRequestClose={onClose}
+        >
+          <GestureHandler
+            onStart={onGestureStart}
+            onUpdate={onGestureUpdate}
+            onEnd={onGestureEnd}
+          >
+            <Animated.View style={ModalStyles.container} testID="storyModal">
+              <Pressable
+                onPressIn={onPressIn}
+                onPress={onPress}
+                onLongPress={onLongPress}
+                onPressOut={onPressOut}
+                delayLongPress={LONG_PRESS_DURATION}
+                style={ModalStyles.container}
+              >
+                <Animated.View
+                  style={[ ModalStyles.bgAnimation, backgroundAnimatedStyles ]}
+                />
+                <Animated.View
+                  style={[ ModalStyles.absolute, animatedStyles, containerStyle ]}
+                >
+                  {Platform.OS === 'web'
+                    ? stories?.map( ( story, index ) => {
 
-        runOnJS( setActiveUserIndex )( res );
-
-      }
-
-    },
-    [ userIndex.value ],
-  );
-
-  return (
-    <View>
-      <Modal statusBarTranslucent={statusBarTranslucent} visible={visible} transparent animationType="none" testID="storyRNModal" onRequestClose={onClose}>
-        <GestureHandler onStart={onGestureStart} onUpdate={onGestureUpdate} onEnd={onGestureEnd}>
-          <Animated.View style={ModalStyles.container} testID="storyModal">
-            <Pressable
-              onPressIn={onPressIn}
-              onPress={onPress}
-              onLongPress={onLongPress}
-              onPressOut={onPressOut}
-              delayLongPress={LONG_PRESS_DURATION}
-              style={ModalStyles.container}
-            >
-              <Animated.View style={[ ModalStyles.bgAnimation, backgroundAnimatedStyles ]} />
-              <Animated.View style={[ ModalStyles.absolute, animatedStyles, containerStyle ]}>
-                {Platform.OS === 'web'
-                  ? (
-                    // On web: Only render the active story to prevent loading multiple videos
-                    stories?.map( ( story, index ) => {
-
+                      // On web: Only render the active story to prevent loading multiple videos
                       const isActiveStory = activeUserIndex === index;
                       if ( !isActiveStory ) {
 
@@ -591,10 +704,8 @@ const StoryModal = forwardRef<StoryModalPublicMethods, StoryModalProps>( ( {
                         />
                       );
 
-                    } )
-                  ) : (
-                    // On native: Render all stories for smooth horizontal scrolling
-                    stories?.map( ( story, index ) => (
+                    } ) // On native: Render all stories for smooth horizontal scrolling
+                    : stories?.map( ( story, index ) => (
                       <StoryList
                         {...story}
                         index={index}
@@ -627,17 +738,17 @@ const StoryModal = forwardRef<StoryModalPublicMethods, StoryModalProps>( ( {
                         key={story.id}
                         {...props}
                       />
-                    ) )
-                  )}
-              </Animated.View>
-            </Pressable>
-            {footerComponent && footerComponent}
-          </Animated.View>
-        </GestureHandler>
-      </Modal>
-    </View>
-  );
+                    ) )}
+                </Animated.View>
+              </Pressable>
+              {footerComponent && footerComponent}
+            </Animated.View>
+          </GestureHandler>
+        </Modal>
+      </View>
+    );
 
-} );
+  },
+);
 
 export default memo( StoryModal );
